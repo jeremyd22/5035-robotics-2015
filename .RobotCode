@@ -1,0 +1,189 @@
+package org.usfirst.frc.team5035.robot;
+
+import edu.wpi.first.wpilibj.DigitalInput;
+import edu.wpi.first.wpilibj.IterativeRobot;
+import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.RobotDrive;
+import edu.wpi.first.wpilibj.Talon;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.Utility;
+import edu.wpi.first.wpilibj.buttons.Button;
+import edu.wpi.first.wpilibj.buttons.JoystickButton;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+
+/**
+ * The VM is configured to automatically run this class, and to call the
+ * functions corresponding to each mode, as described in the IterativeRobot
+ * documentation. If you change the name of this class or the package after
+ * creating this project, you must also update the manifest file in the resource
+ * directory.
+ */
+public class Robot extends IterativeRobot {
+	//max acceleration of the robot
+	private final double MAX_RATE = 28;
+	//max speed of the robot
+	private final double MAX_STICK = 0.60;
+	//values that will be assigned to the subsystem
+	private double leftValue = 0;
+	private double rightValue = 0;
+	//variables used for actual drive smoothing.
+	private double l0 = 0;
+	private double r0 = 0;
+	private double l1 = 0;
+	private double r1 = 0;
+	private long t0 = 0;
+	private long t1 = 0;
+	//intermediate variables
+	private double moveValue = 0;
+	private double rotateValue = 0;
+
+	int SECONDARY_JOYSTICK = 1;
+	int MAIN_JOYSTICK = 0;
+	int PWM_LIFTER = 4;
+	int AXIS_LEFT_X = 0;
+	int AXIS_LEFT_Y = 1;
+	int ARM_UP_BUTTON = 5;
+	int ARM_DOWN_BUTTON = 6;
+	//int DIO_LIMIT_TOP = 1;
+	//int DIO_LIMIT_BOT = 0;
+	int AXIS_RIGHT_X = 4;
+	int AXIS_RIGHT_Y = 5;
+	static final int PWM_TALON_LEFT_UP = 1;
+	static final int PWM_TALON_LEFT_DOWN = 0;
+	static final int PWM_TALON_RIGHT_UP = 3;
+	static final int PWM_TALON_RIGHT_DOWN = 2;
+	int up = 0;
+
+	Joystick scondaryStick = new Joystick(SECONDARY_JOYSTICK);
+	//RobotDrive robodrive = new RobotDrive(0, 1, 2, 3);
+	RobotDrive robodrive = new RobotDrive(PWM_TALON_LEFT_UP, PWM_TALON_LEFT_DOWN, PWM_TALON_RIGHT_UP, PWM_TALON_RIGHT_DOWN);
+	Joystick mainStick = new Joystick(MAIN_JOYSTICK);
+	Talon lifter = new Talon(PWM_LIFTER);
+	Button liftup = new JoystickButton(mainStick, ARM_UP_BUTTON);
+	Button liftdown = new JoystickButton(mainStick, ARM_DOWN_BUTTON);
+	DigitalInput limtop = new DigitalInput(1);
+	DigitalInput limbot = new DigitalInput(0);
+	/*Talon topleft = new Talon(PWM_TALON_LEFT_UP);
+	Talon topright = new Talon(PWM_TALON_RIGHT_UP);
+	Talon botleft = new Talon(PWM_TALON_LEFT_DOWN);
+	Talon botright = new Talon(PWM_TALON_RIGHT_DOWN);		
+	*/Timer autoTimer = new Timer();
+
+	/**
+	 * This function is run when the robot is first started up and should be
+	 * used for any initialization code.
+	 */
+	public void robotInit() {
+
+	}
+
+	/**
+	 * This function is called periodically during autonomous
+	 */
+	public void autonomousPeriodic() {
+		autoTimer.start();
+		if (autoTimer.hasPeriodPassed(2) == true)
+			robodrive.arcadeDrive(0, 0);
+		else 
+			robodrive.arcadeDrive(1, 0);
+
+	}
+
+	/**
+	 * This function is called periodically during operator control
+	 */
+	public void teleopPeriodic() {
+		boolean sensitivity = true;
+		boolean topval = limtop.get();
+		boolean botval = limbot.get();
+		SmartDashboard.putBoolean("top", limbot.get());
+		if (mainStick.getRawButton(ARM_UP_BUTTON) == true && topval == true)
+			up = 1;
+		else if (mainStick.getRawButton(ARM_DOWN_BUTTON) == true && botval == true)
+			up = -1;
+		else
+			up = 0;
+
+		lifter.set(up);
+		
+	//	robodrive.arcadeDrive(mainStick, AXIS_LEFT_Y, mainStick, AXIS_LEFT_X, sensitivity);
+	//	robodrive.arcadeDrive((mainStick.getRawAxis(AXIS_LEFT_Y)*-0.75), (mainStick.getRawAxis(AXIS_LEFT_X)*-0.75), sensitivity);
+		smoothdrive();
+	} 
+
+	
+
+	/**
+	 * This function is called periodically during test mode
+	 */
+	public void testPeriodic() {
+
+	}
+	public void smoothdrive(){
+		//first get the current time from the FPGA
+    	t1 = Utility.getFPGATime();
+    	//get move and rotate values from the drive stick
+    	moveValue = -mainStick.getY();
+    	rotateValue = -mainStick.getRawAxis(AXIS_RIGHT_X);
+    	
+    	//Decode the move and rotate values into left- and right- tank drive 
+    	//values. This if-else block is taken from WPILib RobotDrive.java
+        if (moveValue > 0.0) {
+            if (rotateValue > 0.0) {
+                l1 = moveValue - rotateValue;
+                r1 = Math.max(moveValue, rotateValue);
+            } else {
+                l1 = Math.max(moveValue, -rotateValue);
+                r1 = moveValue + rotateValue;
+            }
+        } else {
+            if (rotateValue > 0.0) {
+                l1 = -Math.max(-moveValue, rotateValue);
+                r1 = moveValue + rotateValue;
+            } else {
+                l1 = moveValue - rotateValue;
+                r1 = -Math.max(-moveValue, -rotateValue);
+            }
+        }
+        
+        //compute dt and delta-L, deltaR
+        double dt = ((double) (t1 - t0)) / 10e6; //in seconds
+        double dl = l1 - l0; //in percent
+        double dr = r1 - r0; //in percent
+        //now compute the slopes, units percent per second
+        //if you've taken physics, this could also be considered
+        //"stick velocity", and is the slope in the "stick-position vs time" 
+        //graph.
+        double dldt = dl / dt;
+        double drdt = dr / dt;
+        
+        //now for each, if slope exceeds maximum allowed, then we clip to the 
+        //max. Otherwise assign as normal.
+        //left side
+        if(Math.abs(dldt) <= MAX_RATE){
+        	leftValue = l1;
+        }
+        else{
+        	//account for forewards/backwards
+        	if(dl >= 0.0) leftValue = l0 + dt * MAX_RATE;
+        	else leftValue = l0 - dt * MAX_RATE;
+        }
+        //and right side
+        if(Math.abs(drdt) <= MAX_RATE){
+        	rightValue = r1;
+        }
+        else{
+        	if(dr >= 0.0) rightValue = r0 + dt * MAX_RATE;
+        	else rightValue = r0 - dt * MAX_RATE;
+        }
+        
+        //now we set up the variables for the next run.
+        t0 = t1;
+        l0 = leftValue;
+        r0 = rightValue;
+        //and apply the values00
+        robodrive.tankDrive(leftValue*MAX_STICK, rightValue*MAX_STICK);
+	}
+
+}
+
